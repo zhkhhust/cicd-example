@@ -2,5 +2,9 @@
 name = "cicd-example"
 version = "0.1.0"
 dependencies = [
+    "flask",
     "pytest",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = "."
