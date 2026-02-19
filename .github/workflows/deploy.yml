@@ -1,4 +1,4 @@
-name: "Run Flask Server"
+name: "localrun"
 
 on:
   workflow_dispatch:  # 允许手动触发
