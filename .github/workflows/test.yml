@@ -1,4 +1,4 @@
-name: "Test Flask API"
+name: "VM-4-8-opencloudos"
 
 on:
   push:
