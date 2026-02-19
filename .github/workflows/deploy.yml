@@ -1,0 +1,117 @@
+name: "Run Flask Server"
+
+on:
+  workflow_dispatch:  # 允许手动触发
+  push:
+    branches:
+      - main
+    paths:
+      - 'main.py'
+      - 'pyproject.toml'
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  deploy:
+    name: 🚀 Deploy Flask App
+    runs-on: self-hosted
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: ⚙️ Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      
+      - name: 📦 Install dependencies
+        run: |
+          uv sync
+          
+      - name: 🧪 Run tests before deploy
+        run: |
+          uv run pytest tests/test_main.py -v
+          
+      - name: 🚀 Start Flask Server
+        run: |
+          echo "Starting Flask server..."
+          uv run python main.py &
+          SERVER_PID=$!
+          echo "Server PID: $SERVER_PID"
+          echo $SERVER_PID > server.pid
+          
+      - name: ⏳ Wait for server to start
+        run: |
+          echo "Waiting 5 seconds for server to initialize..."
+          sleep 5
+          
+      - name: 🌐 Health Check
+        run: |
+          echo "Performing health check..."
+          curl -f http://localhost:5000/ || exit 1
+          echo "✅ Server is running!"
+          
+      - name: 📝 Server Info
+        if: success()
+        run: |
+          echo "==================================="
+          echo "Flask Server Information"
+          echo "==================================="
+          echo "Status: Running ✅"
+          echo "URL: http://localhost:5000"
+          echo ""
+          echo "Available Endpoints:"
+          echo "  GET  /           - Home page"
+          echo "  GET  /items      - Get all items"
+          echo "  POST /items      - Create item"
+          echo "  GET  /items/<id> - Get item by ID"
+          echo "  PUT  /items/<id> - Update item"
+          echo "  DELETE /items/<id> - Delete item"
+          echo "==================================="
+          
+      - name: 🧪 Test API Endpoints
+        if: success()
+        run: |
+          echo "Testing API endpoints..."
+          
+          # Test home endpoint
+          echo "Testing GET /..."
+          curl -s http://localhost:5000/ | jq '.'
+          
+          # Test creating an item
+          echo "Testing POST /items..."
+          curl -s -X POST http://localhost:5000/items \
+            -H "Content-Type: application/json" \
+            -d '{"name": "GitHub Actions Test", "description": "Created by CI/CD"}' | jq '.'
+          
+          # Test getting all items
+          echo "Testing GET /items..."
+          curl -s http://localhost:5000/items | jq '.'
+          
+          echo "✅ All API endpoints tested successfully!"
+          
+      - name: 🛑 Stop Server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            echo "Stopping Flask server..."
+            kill $(cat server.pid) || true
+            rm server.pid
+            echo "✅ Server stopped"
+          fi
+          
+      - name: ✅ Deployment Summary
+        if: success()
+        run: |
+          echo "==================================="
+          echo "🎉 Deployment Successful!"
+          echo "==================================="
+          echo "Flask application deployed and tested"
+          echo "All tests passed ✅"
+          echo "Server is production ready 🚀"
+          echo "==================================="

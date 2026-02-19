@@ -4,39 +4,46 @@ on:
   push:
     branches:
       - main
+    tags:
+      - v*
   pull_request:
     branches:
       - main
     types: [opened, synchronize]
 
+# 并发控制：同一分支的多次运行只保留最新的
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    name: Run Tests
+    name: 🧪 Run Tests
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
+      - name: 📥 Checkout code
         uses: actions/checkout@v4
       
-      - name: Install uv
+      - name: ⚙️ Install uv
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
           
-      - name: Set up Python
+      - name: 🐍 Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: |
           uv sync
           
-      - name: Run tests
+      - name: 🧪 Run tests
         run: |
           uv run pytest tests/test_main.py -v --tb=short
           
-      - name: Test Summary
+      - name: 📊 Test Summary
         if: always()
         run: |
           echo "✅ 测试完成！"
