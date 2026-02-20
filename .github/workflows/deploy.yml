@@ -36,105 +36,82 @@ jobs:
         run: |
           uv run pytest tests/test_main.py -v
           
-      - name: 🛑 Stop Flask Server (if running)
+      - name: 🛑 Stop and remove old Docker container
         continue-on-error: true
         run: |
-          echo "Checking for existing Flask server..."
+          echo "Checking for existing Flask container..."
           
-          # Kill screen session if exists
-          if screen -list | grep -q "flask-app"; then
-            echo "Stopping existing Flask screen session..."
-            screen -S flask-app -X quit 2>/dev/null || true
-            echo "✅ Stopped Flask screen session"
+          # Stop and remove container if exists
+          if docker ps -a | grep -q flask-app; then
+            echo "Stopping and removing existing Flask container..."
+            docker stop flask-app 2>/dev/null || true
+            docker rm flask-app 2>/dev/null || true
+            echo "✅ Removed existing container"
+          else
+            echo "⚠️ No existing container found"
           fi
           
-          # Kill by PID file if exists
-          if [ -f server.pid ]; then
-            OLD_PID=$(cat server.pid)
-            if ps -p $OLD_PID > /dev/null 2>&1; then
-              echo "Killing process with PID: $OLD_PID"
-              kill $OLD_PID 2>/dev/null || true
-              sleep 1
-              kill -9 $OLD_PID 2>/dev/null || true
-            fi
-            rm -f server.pid
-          fi
-          
-          # Kill any process using port 5000
-          if command -v lsof >/dev/null 2>&1; then
-            lsof -ti:5000 | xargs kill -9 2>/dev/null || true
-          elif command -v fuser >/dev/null 2>&1; then
-            fuser -k 5000/tcp 2>/dev/null || true
+          # Also remove old image if exists
+          if docker images | grep -q "flask-app"; then
+            echo "Removing old Docker image..."
+            docker rmi flask-app:latest 2>/dev/null || true
           fi
           
           echo "✅ Cleanup completed"
           
-      - name: 🚀 Start Flask Server in screen session
+      - name: 🐳 Build Docker image
         run: |
-          echo "Starting Flask server in screen session..."
+          echo "Building Docker image for Flask app..."
+          docker build -t flask-app:latest .
+          echo "✅ Docker image built successfully"
           
-          # Start the server in a detached screen session
-          screen -dmS flask-app bash -c "uv run python main.py > flask_server.log 2>&1"
+      - name: 🚀 Start Docker container
+        run: |
+          echo "Starting Flask application in Docker container..."
           
-          # Wait a moment for the process to start
-          sleep 2
+          # Run the container in detached mode with restart policy
+          docker run -d \
+            --name flask-app \
+            --restart unless-stopped \
+            -p 5000:5000 \
+            flask-app:latest
           
-          # Get the PID of the screen session
-          SCREEN_PID=$(screen -list | grep flask-app | awk -F '.' '{print $1}' | head -1)
-          
-          if [ -n "$SCREEN_PID" ]; then
-            echo "✅ Flask server started in screen session"
-            echo "Screen session PID: $SCREEN_PID"
-            echo $SCREEN_PID > server.pid
-          else
-            echo "⚠️ Warning: Could not get screen PID, but server may still be starting"
-          fi
-          
-          echo "Server will continue running after workflow completes"
+          echo "✅ Flask container started"
+          echo "Container will continue running after workflow completes"
           
       - name: ⏳ Wait for server to start
         run: |
           echo "Waiting 5 seconds for server to initialize..."
           sleep 5
           
-      - name: 📋 Show Server Logs
+      - name: 📋 Show Docker Container Logs
         run: |
-          echo "=== Flask Server Logs ==="
-          if [ -f flask_server.log ]; then
-            cat flask_server.log
-          else
-            echo "Log file not found yet"
-          fi
-          echo "========================="
+          echo "=== Flask Docker Container Logs ==="
+          docker logs flask-app
+          echo "===================================="
           
-      - name: 🔍 Verify Server Process
+      - name: 🔍 Verify Docker Container
         run: |
-          echo "Checking Flask screen session status..."
+          echo "Checking Docker container status..."
           
-          # Check if screen session exists
-          if screen -list | grep -q "flask-app"; then
-            echo "✅ Flask screen session is running!"
-            screen -list | grep flask-app
+          # Check if container is running
+          if docker ps | grep -q flask-app; then
+            echo "✅ Flask container is running!"
+            docker ps | grep flask-app
           else
-            echo "❌ Flask screen session not found!"
-            echo "Checking for any Python process on port 5000..."
-            
-            if command -v lsof >/dev/null 2>&1; then
-              lsof -i :5000 || echo "No process found on port 5000"
-            elif command -v netstat >/dev/null 2>&1; then
-              netstat -tlnp 2>/dev/null | grep 5000 || echo "No process found on port 5000"
-            fi
-            
-            # If no process found, fail the step
-            if ! lsof -i :5000 >/dev/null 2>&1 && ! netstat -tlnp 2>/dev/null | grep -q 5000; then
-              echo "❌ No Flask server process found!"
-              exit 1
-            fi
+            echo "❌ Flask container is not running!"
+            echo "Checking all containers..."
+            docker ps -a | grep flask-app || echo "Container not found"
+            exit 1
           fi
           
           echo ""
-          echo "Screen sessions:"
-          screen -list || echo "No screen sessions found"
+          echo "Container details:"
+          docker inspect flask-app --format='{{.State.Status}}: {{.State.Running}}'
+          
+          echo ""
+          echo "Container logs (last 20 lines):"
+          docker logs --tail 20 flask-app
           
       - name: 🌐 Health Check
         run: |
@@ -142,14 +119,21 @@ jobs:
           curl -f http://localhost:5000/ || exit 1
           echo "✅ Server is running!"
           
-      - name: 📝 Server Info
+      - name: 📝 Docker Container Info
         if: success()
         run: |
           echo "==================================="
-          echo "Flask Server Information"
+          echo "Flask Docker Container Information"
           echo "==================================="
           echo "Status: Running ✅"
           echo "URL: http://localhost:5000"
+          echo ""
+          echo "Container Management Commands:"
+          echo "  docker ps              - List running containers"
+          echo "  docker logs flask-app  - View container logs"
+          echo "  docker stop flask-app  - Stop the container"
+          echo "  docker start flask-app - Start the container"
+          echo "  docker restart flask-app - Restart the container"
           echo ""
           echo "Available Endpoints:"
           echo "  GET  /           - Home page"

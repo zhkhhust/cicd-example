@@ -2,16 +2,17 @@
 
 ## 部署方式
 
-本部署使用 **GNU Screen** 会话来保持 Flask 服务持续运行，无需 sudo 权限。
+本部署使用 **Docker 容器**来运行 Flask 服务，确保服务的持续运行和易于管理。
 
 ## 工作原理
 
-### 为什么使用 Screen？
+### 为什么使用 Docker？
 
-- ✅ **无需 sudo 权限**：普通用户即可使用
-- ✅ **进程持久化**：Screen 会话中的进程会持续运行，即使启动它的进程退出
-- ✅ **易于管理**：可以随时重新连接查看日志或停止服务
-- ✅ **标准工具**：Screen 是 Linux 标准工具，通常已预装
+- ✅ **环境隔离**：容器化应用，避免环境冲突
+- ✅ **进程持久化**：容器中的进程持续运行，即使启动它的进程退出
+- ✅ **自动重启**：配置了 `--restart unless-stopped` 策略，容器崩溃或系统重启后自动恢复
+- ✅ **易于管理**：使用标准 Docker 命令即可管理
+- ✅ **可移植性**：同样的容器可以在任何支持 Docker 的环境中运行
 
 ## 自动部署
 
@@ -27,76 +28,79 @@ git push origin main
 
 ## 手动管理服务
 
-### 查看运行中的 Screen 会话
+### 查看运行中的容器
 
 ```bash
-screen -list
+docker ps
 ```
 
 输出示例：
 ```
-There is a screen on:
-    12345.flask-app   (Detached)
+CONTAINER ID   IMAGE             COMMAND                  CREATED         STATUS         PORTS                    NAMES
+abc123         flask-app:latest  "uv run python main.py"  10 seconds ago  Up 9 seconds   0.0.0.0:5000->5000/tcp   flask-app
 ```
 
-### 连接到 Flask 服务会话
+### 查看容器日志
 
 ```bash
-screen -r flask-app
+# 查看所有日志
+docker logs flask-app
+
+# 实时查看日志
+docker logs -f flask-app
+
+# 查看最近 100 行日志
+docker logs --tail 100 flask-app
 ```
-
-在会话中可以看到：
-- Flask 服务器输出
-- 访问日志
-- 错误信息
-
-### 断开 Screen 会话（不停止服务）
-
-在会话中按 `Ctrl+A` 然后按 `D`
 
 ### 停止 Flask 服务
 
 ```bash
-# 方法 1: 使用 screen 命令
-screen -S flask-app -X quit
+# 停止容器
+docker stop flask-app
 
-# 方法 2: 手动停止进程
-kill $(cat server.pid)
-
-# 方法 3: 停止占用 5000 端口的进程
-lsof -ti:5000 | xargs kill -9
+# 停止并删除容器
+docker stop flask-app && docker rm flask-app
 ```
 
 ### 启动 Flask 服务（手动）
 
 ```bash
-# 在 screen 会话中启动
-screen -dmS flask-app bash -c "uv run python main.py > flask_server.log 2>&1"
+# 使用已存在的镜像启动
+docker run -d \
+  --name flask-app \
+  --restart unless-stopped \
+  -p 5000:5000 \
+  flask-app:latest
+
+# 或重新构建并启动
+docker build -t flask-app:latest .
+docker run -d \
+  --name flask-app \
+  --restart unless-stopped \
+  -p 5000:5000 \
+  flask-app:latest
 ```
 
-## 日志文件
+### 重启服务
 
-服务器日志保存在：
-- `flask_server.log` - 标准输出日志
-- `flask_server_error.log` - 错误日志（如果使用 systemd）
-
-查看日志：
 ```bash
-# 查看完整日志
-cat flask_server.log
-
-# 实时查看日志
-tail -f flask_server.log
-
-# 查看最近 100 行
-tail -n 100 flask_server.log
+docker restart flask-app
 ```
 
 ## 服务信息
 
+- **容器名称**: flask-app
+- **镜像名称**: flask-app:latest
 - **URL**: http://localhost:5000
 - **主机**: 0.0.0.0（监听所有网络接口）
-- **端口**: 5000
+- **端口**: 5000（宿主机）→ 5000（容器）
+
+## Docker 容器配置
+
+- **重启策略**: `unless-stopped` - 容器崩溃时自动重启，除非手动停止
+- **端口映射**: `-p 5000:5000` - 将宿主机的 5000 端口映射到容器的 5000 端口
+- **运行模式**: `-d` - 后台运行（detached mode）
 
 ## API 端点
 
@@ -139,37 +143,77 @@ curl -X DELETE http://localhost:5000/items/1
 
 ### 服务无法访问
 
-1. 检查 screen 会话是否存在：
+1. 检查容器是否运行：
    ```bash
-   screen -list | grep flask-app
+   docker ps | grep flask-app
    ```
 
-2. 检查端口是否被占用：
+2. 检查容器状态（包括停止的容器）：
+   ```bash
+   docker ps -a | grep flask-app
+   ```
+
+3. 查看容器日志：
+   ```bash
+   docker logs flask-app
+   ```
+
+4. 实时查看容器日志：
+   ```bash
+   docker logs -f flask-app
+   ```
+
+5. 检查端口是否被占用：
    ```bash
    lsof -i :5000
+   # 或
+   netstat -tlnp | grep 5000
    ```
 
-3. 检查进程是否运行：
+6. 进入容器内部调试：
    ```bash
-   ps aux | grep "python main.py"
+   docker exec -it flask-app bash
    ```
 
-4. 查看日志文件：
+### 容器启动失败
+
+1. 查看容器退出状态：
    ```bash
-   cat flask_server.log
+   docker inspect flask-app --format='{{.State.Status}}'
    ```
 
-### 如果 screen 未安装
+2. 查看完整日志：
+   ```bash
+   docker logs flask-app
+   ```
+
+3. 重新构建镜像：
+   ```bash
+   docker build -t flask-app:latest .
+   ```
+
+4. 手动运行容器进行调试：
+   ```bash
+   docker run -it --rm -p 5000:5000 flask-app:latest
+   ```
+
+### 如果 Docker 未安装
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get install screen
+sudo apt-get update
+sudo apt-get install docker.io
 
 # CentOS/RHEL
-sudo yum install screen
+sudo yum install docker
 
-# Fedora
-sudo dnf install screen
+# 启动 Docker 服务
+sudo systemctl start docker
+sudo systemctl enable docker
+
+# 将当前用户添加到 docker 组（避免每次使用 sudo）
+sudo usermod -aG docker $USER
+# 需要重新登录才能生效
 ```
 
 ## 开发环境
@@ -180,3 +224,18 @@ uv run python main.py
 ```
 
 服务会在前台运行，便于调试。
+
+## Docker 部署流程
+
+部署工作流会自动执行以下步骤：
+
+1. ✅ **停止旧容器**：停止并删除名为 `flask-app` 的旧容器
+2. ✅ **删除旧镜像**：删除旧的 `flask-app:latest` 镜像
+3. ✅ **构建新镜像**：使用 Dockerfile 构建新镜像
+4. ✅ **启动新容器**：使用新镜像启动容器，配置自动重启
+5. ✅ **等待启动**：等待 5 秒让服务完全启动
+6. ✅ **验证服务**：检查容器状态和日志
+7. ✅ **健康检查**：测试 API 端点是否可访问
+8. ✅ **API 测试**：测试所有主要端点
+
+部署完成后，容器会持续运行，即使 GitHub Actions workflow 完成。
