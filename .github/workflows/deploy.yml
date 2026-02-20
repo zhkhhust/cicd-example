@@ -85,7 +85,8 @@ jobs:
       - name: 🐳 Build Docker image
         run: |
           echo "Building Docker image for Flask app..."
-          sudo docker build -t flask-app:latest .
+          echo "Using --no-cache to ensure fresh build with correct Python version"
+          sudo docker build --no-cache -t flask-app:latest .
           echo "✅ Docker image built successfully"
           
       - name: 🚀 Start Docker container

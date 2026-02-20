@@ -1,5 +1,5 @@
-# Use Python 3.13 slim image
-FROM python:3.13-slim
+# Use Python 3.12 slim image (stable and compatible)
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
@@ -12,11 +12,16 @@ RUN apt-get update && apt-get install -y \
 # Install uv
 RUN pip install uv
 
+# Debug: Check Python version
+RUN python --version && which python
+
 # Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Only copy pyproject.toml, not uv.lock, to avoid Python version conflicts
+COPY pyproject.toml ./
 
 # Install dependencies
-RUN uv sync --frozen
+# uv will resolve dependencies for the current Python version
+RUN uv sync
 
 # Copy application code
 COPY main.py ./
