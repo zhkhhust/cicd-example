@@ -37,43 +37,43 @@ jobs:
           uv run pytest tests/test_main.py -v
           
       - name: 🛑 Stop existing Flask Server (if running)
-        shell: pwsh
+        continue-on-error: true
         run: |
-          Write-Host "Checking for existing Flask server..."
-          if (Test-Path server.pid) {
-            $oldPid = Get-Content server.pid
-            $process = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
-            if ($process) {
-              Write-Host "Killing existing server with PID: $oldPid"
-              Stop-Process -Id $oldPid -Force
-              Start-Sleep -Seconds 2
-            }
-            Remove-Item server.pid -Force
-          }
+          echo "Checking for existing Flask server..."
+          if [ -f server.pid ]; then
+            OLD_PID=$(cat server.pid)
+            if ps -p $OLD_PID > /dev/null 2>&1; then
+              echo "Killing existing server with PID: $OLD_PID"
+              kill $OLD_PID 2>/dev/null || true
+              sleep 2
+              # Force kill if still running
+              if ps -p $OLD_PID > /dev/null 2>&1; then
+                kill -9 $OLD_PID 2>/dev/null || true
+              fi
+            fi
+            rm -f server.pid
+          fi
           # Kill any process using port 5000
-          $port = 5000
-          $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
-          if ($connections) {
-            foreach ($conn in $connections) {
-              $process = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
-              if ($process) {
-                Write-Host "Killing process $($process.Id) using port $port"
-                Stop-Process -Id $conn.OwningProcess -Force
-              }
-            }
-          }
+          if command -v lsof >/dev/null 2>&1; then
+            lsof -ti:5000 | xargs kill -9 2>/dev/null || true
+          elif command -v fuser >/dev/null 2>&1; then
+            fuser -k 5000/tcp 2>/dev/null || true
+          fi
+          echo "✅ Successfully stopped existing server (if any)"
           
       - name: 🚀 Start Flask Server
-        shell: pwsh
         run: |
-          Write-Host "Starting Flask server in background..."
-          # Start the process in background using PowerShell
-          $processInfo = Start-Process -FilePath "uv" -ArgumentList "run", "python", "main.py" -WindowStyle Hidden -RedirectStandardOutput "flask_server.log" -RedirectStandardError "flask_server_error.log" -PassThru
-          $pid = $processInfo.Id
-          Write-Host "Server PID: $pid"
-          $pid | Out-File -FilePath "server.pid" -Encoding utf8
-          Write-Host "Server started in background, will continue running after workflow completes"
-          Write-Host "Step completed successfully"
+          echo "Starting Flask server in background..."
+          # Use setsid to create a new session and completely detach from parent
+          setsid uv run python main.py > flask_server.log 2>&1 &
+          SERVER_PID=$!
+          echo "Server PID: $SERVER_PID"
+          echo $SERVER_PID > server.pid
+          # Disown to remove from shell's job control
+          disown $SERVER_PID 2>/dev/null || true
+          echo "Server started in background with setsid and disowned"
+          echo "This process will continue running after workflow completes"
+          echo "Step completed successfully"
           
       - name: ⏳ Wait for server to start
         run: |
@@ -83,28 +83,33 @@ jobs:
       - name: 📋 Show Server Logs
         run: |
           echo "=== Flask Server Logs ==="
-          cat flask_server.log
+          if [ -f flask_server.log ]; then
+            cat flask_server.log
+          else
+            echo "Log file not found yet"
+          fi
           echo "========================="
           
       - name: 🔍 Verify Server Process
-        shell: pwsh
         run: |
-          Write-Host "Checking if server process is still running..."
-          if (Test-Path server.pid) {
-            $pid = Get-Content server.pid
-            $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
-            if ($process) {
-              Write-Host "✅ Server process (PID: $pid) is running!"
-              Write-Host "Process name: $($process.ProcessName)"
-              Write-Host "Start time: $($process.StartTime)"
-            } else {
-              Write-Host "❌ Server process (PID: $pid) is not running!"
-              Write-Host "Checking for any processes using port 5000..."
-              Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue | Format-Table
-            }
-          } else {
-            Write-Host "❌ server.pid file not found!"
-          }
+          echo "Checking if server process is still running..."
+          if [ -f server.pid ]; then
+            PID=$(cat server.pid)
+            if ps -p $PID > /dev/null 2>&1; then
+              echo "✅ Server process (PID: $PID) is running!"
+              ps -p $PID -o pid,ppid,cmd,etime
+            else
+              echo "❌ Server process (PID: $PID) is not running!"
+              echo "Checking for any processes using port 5000..."
+              if command -v lsof >/dev/null 2>&1; then
+                lsof -i :5000 || echo "No process found on port 5000"
+              elif command -v netstat >/dev/null 2>&1; then
+                netstat -tlnp 2>/dev/null | grep 5000 || echo "No process found on port 5000"
+              fi
+            fi
+          else
+            echo "❌ server.pid file not found!"
+          fi
           
       - name: 🌐 Health Check
         run: |
