@@ -65,7 +65,10 @@ jobs:
           SERVER_PID=$!
           echo "Server PID: $SERVER_PID"
           echo $SERVER_PID > server.pid
-          echo "Server started with nohup, will continue running after workflow completes"
+          # Disown the process so it's not tied to the shell
+          disown $SERVER_PID 2>/dev/null || true
+          echo "Server started with nohup and disowned, will continue running after workflow completes"
+          echo "Step completed successfully"
           
       - name: ⏳ Wait for server to start
         run: |
