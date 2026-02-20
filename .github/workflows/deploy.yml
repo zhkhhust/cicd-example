@@ -36,44 +36,66 @@ jobs:
         run: |
           uv run pytest tests/test_main.py -v
           
-      - name: 🛑 Stop existing Flask Server (if running)
+      - name: 🛑 Stop Flask systemd service (if running)
         continue-on-error: true
         run: |
-          echo "Checking for existing Flask server..."
-          if [ -f server.pid ]; then
-            OLD_PID=$(cat server.pid)
-            if ps -p $OLD_PID > /dev/null 2>&1; then
-              echo "Killing existing server with PID: $OLD_PID"
-              kill $OLD_PID 2>/dev/null || true
-              sleep 2
-              # Force kill if still running
-              if ps -p $OLD_PID > /dev/null 2>&1; then
-                kill -9 $OLD_PID 2>/dev/null || true
-              fi
-            fi
-            rm -f server.pid
+          echo "Stopping Flask systemd service..."
+          if systemctl is-active --quiet flask-app; then
+            sudo systemctl stop flask-app
+            echo "✅ Stopped existing Flask service"
+          else
+            echo "⚠️ Flask service was not running"
           fi
-          # Kill any process using port 5000
-          if command -v lsof >/dev/null 2>&1; then
-            lsof -ti:5000 | xargs kill -9 2>/dev/null || true
-          elif command -v fuser >/dev/null 2>&1; then
-            fuser -k 5000/tcp 2>/dev/null || true
-          fi
-          echo "✅ Successfully stopped existing server (if any)"
           
-      - name: 🚀 Start Flask Server
+      - name: 🔧 Create systemd service file
         run: |
-          echo "Starting Flask server in background..."
-          # Use setsid to create a new session and completely detach from parent
-          setsid uv run python main.py > flask_server.log 2>&1 &
-          SERVER_PID=$!
-          echo "Server PID: $SERVER_PID"
-          echo $SERVER_PID > server.pid
-          # Disown to remove from shell's job control
-          disown $SERVER_PID 2>/dev/null || true
-          echo "Server started in background with setsid and disowned"
-          echo "This process will continue running after workflow completes"
-          echo "Step completed successfully"
+          echo "Creating systemd service file for Flask app..."
+          
+          # Get current user and working directory
+          CURRENT_USER=$(whoami)
+          WORK_DIR=$(pwd)
+          UV_PATH=$(which uv)
+          
+          # Create systemd service file
+          sudo tee /etc/systemd/system/flask-app.service > /dev/null <<EOF
+          [Unit]
+          Description=Flask Application
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=$CURRENT_USER
+          WorkingDirectory=$WORK_DIR
+          Environment="PATH=$PATH"
+          ExecStart=$UV_PATH run python main.py
+          Restart=always
+          RestartSec=10
+          StandardOutput=append:$WORK_DIR/flask_server.log
+          StandardError=append:$WORK_DIR/flask_server_error.log
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          
+          echo "✅ Systemd service file created"
+          
+      - name: 🔄 Reload systemd and enable service
+        run: |
+          echo "Reloading systemd daemon..."
+          sudo systemctl daemon-reload
+          
+          echo "Enabling Flask service to start on boot..."
+          sudo systemctl enable flask-app
+          
+          echo "✅ Systemd reloaded and service enabled"
+          
+      - name: 🚀 Start Flask Server via systemd
+        run: |
+          echo "Starting Flask service via systemd..."
+          sudo systemctl start flask-app
+          
+          echo "✅ Flask service started"
+          echo "Service will continue running after workflow completes"
           
       - name: ⏳ Wait for server to start
         run: |
@@ -92,24 +114,29 @@ jobs:
           
       - name: 🔍 Verify Server Process
         run: |
-          echo "Checking if server process is still running..."
-          if [ -f server.pid ]; then
-            PID=$(cat server.pid)
-            if ps -p $PID > /dev/null 2>&1; then
-              echo "✅ Server process (PID: $PID) is running!"
-              ps -p $PID -o pid,ppid,cmd,etime
-            else
-              echo "❌ Server process (PID: $PID) is not running!"
-              echo "Checking for any processes using port 5000..."
-              if command -v lsof >/dev/null 2>&1; then
-                lsof -i :5000 || echo "No process found on port 5000"
-              elif command -v netstat >/dev/null 2>&1; then
-                netstat -tlnp 2>/dev/null | grep 5000 || echo "No process found on port 5000"
-              fi
-            fi
+          echo "Checking Flask systemd service status..."
+          sudo systemctl status flask-app --no-pager || true
+          
+          echo ""
+          echo "Checking if service is active..."
+          if systemctl is-active --quiet flask-app; then
+            echo "✅ Flask service is running!"
           else
-            echo "❌ server.pid file not found!"
+            echo "❌ Flask service is not active!"
+            exit 1
           fi
+          
+          echo ""
+          echo "Checking for processes using port 5000..."
+          if command -v lsof >/dev/null 2>&1; then
+            lsof -i :5000 || echo "No process found on port 5000"
+          elif command -v netstat >/dev/null 2>&1; then
+            netstat -tlnp 2>/dev/null | grep 5000 || echo "No process found on port 5000"
+          fi
+          
+          echo ""
+          echo "Recent service logs:"
+          sudo journalctl -u flask-app -n 20 --no-pager || echo "No logs available yet"
           
       - name: 🌐 Health Check
         run: |

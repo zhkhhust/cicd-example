@@ -1,0 +1,15 @@
+[Unit]
+Description=Flask Application
+After=network.target
+
+[Service]
+Type=simple
+User={{ USER }}
+WorkingDirectory={{ WORKING_DIR }}
+Environment="PATH={{ VENV_PATH }}/bin"
+ExecStart={{ UV_PATH }} run python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
