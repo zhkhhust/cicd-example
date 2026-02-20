@@ -36,18 +36,47 @@ jobs:
         run: |
           uv run pytest tests/test_main.py -v
           
+      - name: 🛑 Stop existing Flask Server (if running)
+        run: |
+          echo "Checking for existing Flask server..."
+          if [ -f server.pid ]; then
+            OLD_PID=$(cat server.pid)
+            if ps -p $OLD_PID > /dev/null 2>&1; then
+              echo "Killing existing server with PID: $OLD_PID"
+              kill $OLD_PID
+              sleep 2
+              # Force kill if still running
+              if ps -p $OLD_PID > /dev/null 2>&1; then
+                kill -9 $OLD_PID
+              fi
+            fi
+            rm server.pid
+          fi
+          # Also kill any process using port 5000
+          if command -v lsof >/dev/null 2>&1; then
+            lsof -ti:5000 | xargs kill -9 2>/dev/null || true
+          fi
+          
       - name: 🚀 Start Flask Server
         run: |
-          echo "Starting Flask server..."
-          uv run python main.py &
+          echo "Starting Flask server with nohup..."
+          # Use nohup to keep server running after workflow completes
+          nohup uv run python main.py > flask_server.log 2>&1 &
           SERVER_PID=$!
           echo "Server PID: $SERVER_PID"
           echo $SERVER_PID > server.pid
+          echo "Server started with nohup, will continue running after workflow completes"
           
       - name: ⏳ Wait for server to start
         run: |
           echo "Waiting 5 seconds for server to initialize..."
           sleep 5
+          
+      - name: 📋 Show Server Logs
+        run: |
+          echo "=== Flask Server Logs ==="
+          cat flask_server.log
+          echo "========================="
           
       - name: 🌐 Health Check
         run: |
