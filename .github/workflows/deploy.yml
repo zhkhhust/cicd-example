@@ -32,9 +32,32 @@ jobs:
         run: |
           uv sync
           
+      - name: 👤 Debug User Information
+        run: |
+          echo "==================================="
+          echo "User Information for Debugging"
+          echo "==================================="
+          echo "Current user: $(whoami)"
+          echo "User ID: $(id -u)"
+          echo "Group ID: $(id -g)"
+          echo "Groups: $(groups)"
+          echo "Home directory: $HOME"
+          echo "Current directory: $(pwd)"
+          echo "==================================="
+          
       - name: 🧪 Run tests before deploy
         run: |
           uv run pytest tests/test_main.py -v
+          
+      - name: 🔐 Setup Docker permissions
+        run: |
+          echo "Setting up Docker permissions..."
+          
+          # Add current user to docker group
+          sudo usermod -aG docker $USER
+          
+          # Activate the new group membership for this session
+          echo "✅ User added to docker group"
           
       - name: 🛑 Stop and remove old Docker container
         continue-on-error: true
@@ -42,19 +65,19 @@ jobs:
           echo "Checking for existing Flask container..."
           
           # Stop and remove container if exists
-          if docker ps -a | grep -q flask-app; then
+          if sudo docker ps -a | grep -q flask-app; then
             echo "Stopping and removing existing Flask container..."
-            docker stop flask-app 2>/dev/null || true
-            docker rm flask-app 2>/dev/null || true
+            sudo docker stop flask-app 2>/dev/null || true
+            sudo docker rm flask-app 2>/dev/null || true
             echo "✅ Removed existing container"
           else
             echo "⚠️ No existing container found"
           fi
           
           # Also remove old image if exists
-          if docker images | grep -q "flask-app"; then
+          if sudo docker images | grep -q "flask-app"; then
             echo "Removing old Docker image..."
-            docker rmi flask-app:latest 2>/dev/null || true
+            sudo docker rmi flask-app:latest 2>/dev/null || true
           fi
           
           echo "✅ Cleanup completed"
@@ -62,7 +85,7 @@ jobs:
       - name: 🐳 Build Docker image
         run: |
           echo "Building Docker image for Flask app..."
-          docker build -t flask-app:latest .
+          sudo docker build -t flask-app:latest .
           echo "✅ Docker image built successfully"
           
       - name: 🚀 Start Docker container
@@ -70,7 +93,7 @@ jobs:
           echo "Starting Flask application in Docker container..."
           
           # Run the container in detached mode with restart policy
-          docker run -d \
+          sudo docker run -d \
             --name flask-app \
             --restart unless-stopped \
             -p 5000:5000 \
@@ -87,7 +110,7 @@ jobs:
       - name: 📋 Show Docker Container Logs
         run: |
           echo "=== Flask Docker Container Logs ==="
-          docker logs flask-app
+          sudo docker logs flask-app
           echo "===================================="
           
       - name: 🔍 Verify Docker Container
@@ -95,23 +118,23 @@ jobs:
           echo "Checking Docker container status..."
           
           # Check if container is running
-          if docker ps | grep -q flask-app; then
+          if sudo docker ps | grep -q flask-app; then
             echo "✅ Flask container is running!"
-            docker ps | grep flask-app
+            sudo docker ps | grep flask-app
           else
             echo "❌ Flask container is not running!"
             echo "Checking all containers..."
-            docker ps -a | grep flask-app || echo "Container not found"
+            sudo docker ps -a | grep flask-app || echo "Container not found"
             exit 1
           fi
           
           echo ""
           echo "Container details:"
-          docker inspect flask-app --format='{{.State.Status}}: {{.State.Running}}'
+          sudo docker inspect flask-app --format='{{.State.Status}}: {{.State.Running}}'
           
           echo ""
           echo "Container logs (last 20 lines):"
-          docker logs --tail 20 flask-app
+          sudo docker logs --tail 20 flask-app
           
       - name: 🌐 Health Check
         run: |
