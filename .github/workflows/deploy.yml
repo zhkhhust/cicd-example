@@ -94,16 +94,6 @@ jobs:
           
           echo "✅ All API endpoints tested successfully!"
           
-      - name: 🛑 Stop Server
-        if: always()
-        run: |
-          if [ -f server.pid ]; then
-            echo "Stopping Flask server..."
-            kill $(cat server.pid) || true
-            rm server.pid
-            echo "✅ Server stopped"
-          fi
-          
       - name: ✅ Deployment Summary
         if: success()
         run: |
